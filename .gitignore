@@ -1,2 +1,4 @@
 data/holdings.json
 data/transactions.csv
+__pycache__/
+.pytest_cache/
