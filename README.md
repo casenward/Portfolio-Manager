@@ -1,10 +1,8 @@
-# Portfolio Manager (bare calculator)
+# Portfolio Manager
 
-Standalone CLI that loads `holdings.json`, fetches the latest prices via
-[yfinance](https://pypi.org/project/yfinance/), and prints Traditional,
-Sustainable, and Combined portfolio values.
-
-This folder is self-contained — copy it anywhere and run it on its own.
+CLI that values Traditional and Sustainable holdings from `holdings.json`
+(prices via [yfinance](https://pypi.org/project/yfinance/)), then lets you
+buy, sell, apply dividends, and log trades to `transactions.csv`.
 
 ## Setup
 
@@ -18,13 +16,10 @@ pip install -r requirements.txt
 python calculate.py
 ```
 
-Example output:
+Menu: buy, sell, print portfolio, dividend, exit.
 
-```
-Traditional: $X,XXX,XXX.XX
-Sustainable: $X,XXX,XXX.XX
-Combined:    $X,XXX,XXX.XX
+```bash
+make clean   # delete transactions.csv
 ```
 
-Edit `holdings.json` to change positions. Ticker `B` is mapped to `GOLD` for
-yfinance (Barrick Mining).
+Edit `holdings.json` for positions. Ticker `B` maps to `GOLD` for yfinance.
