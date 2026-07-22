@@ -8,8 +8,8 @@ from pathlib import Path
 
 import yfinance as yf
 
-HOLDINGS_PATH = Path(__file__).resolve().parent / "holdings.json"
-TRANSACTIONS_PATH = Path(__file__).resolve().parent / "transactions.csv"
+HOLDINGS_PATH = Path(__file__).resolve().parent / "data" / "holdings.json"
+TRANSACTIONS_PATH = Path(__file__).resolve().parent / "data" / "transactions.csv"
 
 YF_TICKER_OVERRIDES = {
     "B": "GOLD",  # Barrick Mining Corporation
