@@ -279,3 +279,146 @@ class TestDividend:
         self._feed_input(monkeypatch, ["AAPL", "traditional", "2"])
         with pytest.raises(ValueError, match="No price available"):
             calculate.dividend({}, holdings)
+
+    def test_dividend_logs_transaction(self, holdings, monkeypatch, tmp_path):
+        self._feed_input(monkeypatch, ["AAPL", "traditional", "2", "n"])
+        calculate.dividend({"AAPL": 100.0}, holdings)
+        rows = list(csv.DictReader((tmp_path / "transactions.csv").open()))
+        assert len(rows) == 1
+        assert rows[0]["transaction"] == "dividend"
+        assert float(rows[0]["amount"]) == 20.0
+
+
+# ---------------------------------------------------------------------------
+# dayChange
+# ---------------------------------------------------------------------------
+
+class TestDayChange:
+    def test_sums_change_across_accounts(self, holdings):
+        prices = {"AAPL": 110.0, "TSLA": 200.0}
+        previous = {"AAPL": 100.0, "TSLA": 190.0}
+        # AAPL: (110-100)*10 = 100; TSLA: (200-190)*4 = 40
+        assert calculate.dayChange(prices, previous, holdings) == 140.0
+
+    def test_negative_day_change(self, holdings):
+        prices = {"AAPL": 90.0, "TSLA": 180.0}
+        previous = {"AAPL": 100.0, "TSLA": 190.0}
+        # AAPL: -100; TSLA: -40
+        assert calculate.dayChange(prices, previous, holdings) == -140.0
+
+    def test_skips_missing_current_or_previous_price(self, holdings):
+        prices = {"AAPL": 110.0, "TSLA": None}
+        previous = {"AAPL": 100.0, "TSLA": 190.0}
+        assert calculate.dayChange(prices, previous, holdings) == 100.0
+
+        prices = {"AAPL": 110.0, "TSLA": 200.0}
+        previous = {"AAPL": 100.0}  # TSLA previous missing
+        assert calculate.dayChange(prices, previous, holdings) == 100.0
+
+    def test_cash_key_is_ignored(self, holdings):
+        holdings["cash"] = 999999.0
+        prices = {"AAPL": 105.0, "TSLA": 190.0}
+        previous = {"AAPL": 100.0, "TSLA": 190.0}
+        # only AAPL moves: +5 * 10 = 50
+        assert calculate.dayChange(prices, previous, holdings) == 50.0
+
+    def test_uses_yf_ticker_not_display_ticker(self):
+        holdings = {
+            "cash": 0.0,
+            "traditional": [
+                {"name": "Barrick", "ticker": "B", "yf_ticker": "GOLD", "shares": 10.0},
+            ],
+        }
+        prices = {"GOLD": 42.0, "B": 999.0}
+        previous = {"GOLD": 40.0, "B": 1.0}
+        # must use GOLD, not B: (42-40)*10 = 20
+        assert calculate.dayChange(prices, previous, holdings) == 20.0
+
+    def test_empty_holdings_returns_zero(self):
+        assert calculate.dayChange({}, {}, {"cash": 100.0}) == 0.0
+
+    def test_fractional_shares(self):
+        holdings = {
+            "cash": 0.0,
+            "traditional": [
+                {"name": "Apple", "ticker": "AAPL", "yf_ticker": "AAPL", "shares": 0.5},
+            ],
+        }
+        assert calculate.dayChange({"AAPL": 110.0}, {"AAPL": 100.0}, holdings) == 5.0
+
+
+# ---------------------------------------------------------------------------
+# _last_price / _previous_price
+# ---------------------------------------------------------------------------
+
+class TestPriceHelpers:
+    def _close_frame(self, values_by_ticker: dict[str, list[float]]):
+        import pandas as pd
+
+        return pd.DataFrame(values_by_ticker)
+
+    def test_last_price_returns_latest_close(self):
+        close = self._close_frame({"AAPL": [100.0, 101.0, 105.0]})
+        assert calculate._last_price(close, "AAPL") == 105.0
+
+    def test_previous_price_returns_second_to_last_close(self):
+        close = self._close_frame({"AAPL": [100.0, 101.0, 105.0]})
+        assert calculate._previous_price(close, "AAPL") == 101.0
+
+    def test_previous_price_none_when_fewer_than_two_closes(self):
+        close = self._close_frame({"AAPL": [100.0]})
+        assert calculate._previous_price(close, "AAPL") is None
+
+    def test_last_price_none_for_unknown_ticker(self):
+        close = self._close_frame({"AAPL": [100.0, 101.0]})
+        assert calculate._last_price(close, "MSFT") is None
+
+    def test_last_price_none_when_close_is_none(self):
+        assert calculate._last_price(None, "AAPL") is None
+        assert calculate._previous_price(None, "AAPL") is None
+
+    def test_last_price_skips_nan_values(self):
+        import math
+
+        close = self._close_frame({"AAPL": [100.0, 101.0, float("nan")]})
+        assert calculate._last_price(close, "AAPL") == 101.0
+
+
+# ---------------------------------------------------------------------------
+# log_transaction
+# ---------------------------------------------------------------------------
+
+class TestLogTransaction:
+    def test_writes_header_on_first_write(self, tmp_path):
+        path = tmp_path / "transactions.csv"
+        assert not path.exists()
+        calculate.log_transaction("buy", 100.0, 2, "AAPL", "traditional")
+        text = path.read_text(encoding="utf-8")
+        lines = text.strip().splitlines()
+        assert lines[0] == "transaction,amount,shares,ticker,account"
+        assert lines[1] == "buy,100.0,2,AAPL,traditional"
+
+    def test_appends_without_duplicate_header(self, tmp_path):
+        calculate.log_transaction("buy", 100.0, 1, "AAPL", "traditional")
+        calculate.log_transaction("sell", 50.0, 1, "AAPL", "traditional")
+        lines = (tmp_path / "transactions.csv").read_text(encoding="utf-8").strip().splitlines()
+        assert len(lines) == 3
+        assert lines[0].startswith("transaction,")
+        assert lines[1].startswith("buy,")
+        assert lines[2].startswith("sell,")
+
+
+# ---------------------------------------------------------------------------
+# buyStock edge cases
+# ---------------------------------------------------------------------------
+
+class TestBuyStockExtra:
+    def test_buy_fractional_shares(self, holdings):
+        calculate.buyStock(100.0, 0.5, holdings, "AAPL", "traditional")
+        assert holdings["cash"] == 950.0
+        assert holdings["traditional"][0]["shares"] == 10.5
+
+    def test_buy_on_sustainable_account(self, holdings):
+        calculate.buyStock(50.0, 2, holdings, "TSLA", "sustainable")
+        assert holdings["cash"] == 900.0
+        assert holdings["sustainable"][0]["shares"] == 6.0
