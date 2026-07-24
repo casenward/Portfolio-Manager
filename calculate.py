@@ -21,12 +21,14 @@ def resolve_yf_ticker(ticker: str) -> str:
     return YF_TICKER_OVERRIDES.get(ticker, ticker.replace("/", "-"))
 
 
-def load_holdings(path: Path = HOLDINGS_PATH) -> dict[str, list[dict]]:
+def load_holdings(path: Path = HOLDINGS_PATH) -> dict:
     with path.open(encoding="utf-8") as file:
         raw = json.load(file)
 
-    holdings: dict[str, list[dict]] = {}
+    holdings: dict = {"cash": float(raw.get("cash", 0))}
     for account, positions in raw.items():
+        if account.strip().lower() == "cash" or not isinstance(positions, list):
+            continue
         holdings[account.strip().lower()] = [
             {
                 "name": entry["name"],
@@ -117,17 +119,16 @@ def log_transaction(
 
 
 def buyStock(
-    cash: float,
     price: float,
     shares: int | float,
-    holdings: dict[str, list[dict]],
+    holdings: dict,
     ticker: str,
     account: str = "traditional",
-) -> float:
+) -> None:
     cost = price * shares
-    if cash < cost:
+    if holdings["cash"] < cost:
         raise ValueError("Not enough cash to buy shares")
-    cash -= cost
+    holdings["cash"] -= cost
 
     ticker = ticker.strip().upper()
     account = account.strip().lower()
@@ -139,17 +140,15 @@ def buyStock(
         raise ValueError(f"Ticker {ticker} not found in {account} holdings")
 
     log_transaction("buy", cost, shares, ticker, account)
-    return cash
 
 
 def sellStock(
-    cash: float,
     price: float,
     shares: int,
-    holdings: dict[str, list[dict]],
+    holdings: dict,
     ticker: str,
     account: str = "traditional",
-) -> float:
+) -> None:
     ticker = ticker.strip().upper()
     account_key = account.strip().lower()
     positions = holdings.get(account_key, [])
@@ -159,20 +158,19 @@ def sellStock(
             if shares > position["shares"]:
                 raise ValueError(f"Not enough shares to sell in {account} holdings")
             proceeds = price * shares
-            cash += proceeds
+            holdings["cash"] += proceeds
             position["shares"] -= shares
             if position["shares"] == 0:
                 positions.remove(position)
             log_transaction("sell", proceeds, shares, ticker, account_key)
-            return cash
+            return
 
     raise ValueError(f"Ticker {ticker} not found in {account} holdings")
 
 
 def print_portfolio(
-    holdings: dict[str, list[dict]],
+    holdings: dict,
     prices: dict[str, float | None],
-    cash: float,
 ) -> None:
     traditional, _ = portfolio_value(holdings.get("traditional", []), prices)
     sustainable, _ = portfolio_value(holdings.get("sustainable", []), prices)
@@ -181,7 +179,7 @@ def print_portfolio(
     print(f"Traditional: {format_dollars(traditional)}")
     print(f"Sustainable: {format_dollars(sustainable)}")
     print(f"Combined:    {format_dollars(combined)}")
-    print(f"Cash:        {format_dollars(cash)}")
+    print(f"Cash:        {format_dollars(holdings['cash'])}")
 
 
 def prompt_trade() -> tuple[str, int, str]:
@@ -190,7 +188,7 @@ def prompt_trade() -> tuple[str, int, str]:
     account = input("Account (traditional/sustainable): ").strip().lower() or "traditional"
     return ticker, shares, account
 
-def dividend(cash: float, prices: dict[str, float | None], holdings: dict[str, list[dict]]) -> float:
+def dividend(prices: dict[str, float | None], holdings: dict) -> None:
     ticker = input("What stock is receiving dividends? ").strip().upper()
     account = input("Account (traditional/sustainable): ").strip().lower() or "traditional"
     dividend_yield = float(input("What is the dividend yield %? ")) / 100
@@ -211,26 +209,25 @@ def dividend(cash: float, prices: dict[str, float | None], holdings: dict[str, l
     log_transaction("dividend", cash_yield, position["shares"], ticker, account)
     if reinvest:
         shares_bought = cash_yield / price
-        cash += cash_yield
-        cash = buyStock(cash, price, shares_bought, holdings, ticker, account)
+        holdings["cash"] += cash_yield
+        buyStock(price, shares_bought, holdings, ticker, account)
         print(f"Reinvested {format_dollars(cash_yield)} into {shares_bought:.4f} {ticker}")
     else:
-        cash += cash_yield
+        holdings["cash"] += cash_yield
         print(f"Received {format_dollars(cash_yield)} in dividends")
-    return cash
 
 
 def main() -> int:
-    cash = 200000.00
     holdings = load_holdings()
     all_yf = [
         position["yf_ticker"]
-        for positions in holdings.values()
+        for account, positions in holdings.items()
+        if account != "cash"
         for position in positions
     ]
     prices = fetch_current_prices(all_yf)
 
-    print_portfolio(holdings, prices, cash)
+    print_portfolio(holdings, prices)
 
     missing_trad = portfolio_value(holdings.get("traditional", []), prices)[1]
     missing_sust = portfolio_value(holdings.get("sustainable", []), prices)[1]
@@ -254,18 +251,18 @@ def main() -> int:
                     print(f"No price available for {ticker}")
                     continue
                 if choice == "1":
-                    cash = buyStock(cash, price, shares, holdings, ticker, account)
+                    buyStock(price, shares, holdings, ticker, account)
                     print(f"Bought {shares} {ticker}")
                 else:
-                    cash = sellStock(cash, price, shares, holdings, ticker, account)
+                    sellStock(price, shares, holdings, ticker, account)
                     print(f"Sold {shares} {ticker}")
             except (ValueError, TypeError) as exc:
                 print(f"Error: {exc}")
         elif choice == "3":
-            print_portfolio(holdings, prices, cash)
+            print_portfolio(holdings, prices)
         elif choice == "4":
             try:
-                cash = dividend(cash, prices, holdings)
+                dividend(prices, holdings)
             except (ValueError, TypeError) as exc:
                 print(f"Error: {exc}")
         elif choice == "5":

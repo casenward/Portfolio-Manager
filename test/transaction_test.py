@@ -1,6 +1,6 @@
 """Test suite for calculate.py's portfolio operations.
 
-Run with:  pytest test_calculate.py -v
+Run with:  python -m pytest test/transaction_test.py -v
 """
 from __future__ import annotations
 
@@ -51,9 +51,11 @@ class TestLoadHoldings:
 
     def test_basic_load_normalizes_account_and_ticker(self, tmp_path):
         path = self._write(tmp_path, {
+            "cash": 5000,
             "Traditional": [{"name": "Apple", "ticker": "aapl", "shares": 10}],
         })
         holdings = calculate.load_holdings(path)
+        assert holdings["cash"] == 5000.0
         assert "traditional" in holdings
         pos = holdings["traditional"][0]
         assert pos["ticker"] == "AAPL"
@@ -66,15 +68,17 @@ class TestLoadHoldings:
             "traditional": [{"name": "Barrick", "ticker": "B", "shares": 5}],
         })
         holdings = calculate.load_holdings(path)
+        assert holdings["cash"] == 0.0
         assert holdings["traditional"][0]["yf_ticker"] == "GOLD"
 
     def test_load_multiple_accounts(self, tmp_path):
         path = self._write(tmp_path, {
+            "cash": 100.0,
             "traditional": [{"name": "Apple", "ticker": "AAPL", "shares": 1}],
             "sustainable": [{"name": "Tesla", "ticker": "TSLA", "shares": 2}],
         })
         holdings = calculate.load_holdings(path)
-        assert set(holdings.keys()) == {"traditional", "sustainable"}
+        assert set(holdings.keys()) == {"cash", "traditional", "sustainable"}
 
     def test_missing_file_raises(self, tmp_path):
         with pytest.raises(FileNotFoundError):
@@ -159,6 +163,7 @@ def isolate_transactions_file(tmp_path, monkeypatch):
 @pytest.fixture
 def holdings():
     return {
+        "cash": 1000.0,
         "traditional": [
             {"name": "Apple", "ticker": "AAPL", "yf_ticker": "AAPL", "shares": 10.0},
         ],
@@ -170,38 +175,36 @@ def holdings():
 
 class TestBuyStock:
     def test_buy_increases_shares_and_deducts_cash(self, holdings):
-        cash = calculate.buyStock(1000.0, 100.0, 2, holdings, "AAPL", "traditional")
-        assert cash == 800.0
+        calculate.buyStock(100.0, 2, holdings, "AAPL", "traditional")
+        assert holdings["cash"] == 800.0
         assert holdings["traditional"][0]["shares"] == 12.0
 
     def test_buy_insufficient_cash_raises_and_does_not_mutate(self, holdings):
+        holdings["cash"] = 50.0
         with pytest.raises(ValueError, match="Not enough cash"):
-            calculate.buyStock(50.0, 100.0, 1, holdings, "AAPL", "traditional")
-        # shares should be unchanged since the cash check happens first
+            calculate.buyStock(100.0, 1, holdings, "AAPL", "traditional")
         assert holdings["traditional"][0]["shares"] == 10.0
+        assert holdings["cash"] == 50.0
 
     def test_buy_exact_cash_amount_succeeds(self, holdings):
-        # boundary: cash == cost should NOT raise (only cash < cost raises)
-        cash = calculate.buyStock(1000.0, 100.0, 10, holdings, "AAPL", "traditional")
-        assert cash == 0.0
+        calculate.buyStock(100.0, 10, holdings, "AAPL", "traditional")
+        assert holdings["cash"] == 0.0
 
     def test_buy_unknown_ticker_in_account_raises(self, holdings):
         with pytest.raises(ValueError, match="not found"):
-            calculate.buyStock(1000.0, 50.0, 1, holdings, "GOOG", "traditional")
+            calculate.buyStock(50.0, 1, holdings, "GOOG", "traditional")
 
     def test_buy_ticker_only_in_other_account_still_raises(self, holdings):
-        # TSLA exists, but only under "sustainable" -- buying it under
-        # "traditional" should fail rather than silently succeed elsewhere.
         with pytest.raises(ValueError, match="not found"):
-            calculate.buyStock(1000.0, 50.0, 1, holdings, "TSLA", "traditional")
+            calculate.buyStock(50.0, 1, holdings, "TSLA", "traditional")
 
     def test_buy_is_case_and_whitespace_insensitive_for_ticker_and_account(self, holdings):
-        cash = calculate.buyStock(1000.0, 100.0, 1, holdings, " aapl ", " TRADITIONAL ")
-        assert cash == 900.0
+        calculate.buyStock(100.0, 1, holdings, " aapl ", " TRADITIONAL ")
+        assert holdings["cash"] == 900.0
         assert holdings["traditional"][0]["shares"] == 11.0
 
     def test_buy_logs_transaction(self, holdings, tmp_path):
-        calculate.buyStock(1000.0, 100.0, 2, holdings, "AAPL", "traditional")
+        calculate.buyStock(100.0, 2, holdings, "AAPL", "traditional")
         rows = list(csv.DictReader((tmp_path / "transactions.csv").open()))
         assert len(rows) == 1
         assert rows[0]["transaction"] == "buy"
@@ -211,30 +214,31 @@ class TestBuyStock:
 
 class TestSellStock:
     def test_sell_decreases_shares_and_increases_cash(self, holdings):
-        cash = calculate.sellStock(0.0, 100.0, 3, holdings, "AAPL", "traditional")
-        assert cash == 300.0
+        holdings["cash"] = 0.0
+        calculate.sellStock(100.0, 3, holdings, "AAPL", "traditional")
+        assert holdings["cash"] == 300.0
         assert holdings["traditional"][0]["shares"] == 7.0
 
     def test_sell_all_shares_removes_position(self, holdings):
-        calculate.sellStock(0.0, 100.0, 10, holdings, "AAPL", "traditional")
+        calculate.sellStock(100.0, 10, holdings, "AAPL", "traditional")
         tickers = [p["ticker"] for p in holdings["traditional"]]
         assert "AAPL" not in tickers
 
     def test_sell_more_than_owned_raises_and_does_not_mutate(self, holdings):
         with pytest.raises(ValueError, match="Not enough shares"):
-            calculate.sellStock(0.0, 100.0, 999, holdings, "AAPL", "traditional")
+            calculate.sellStock(100.0, 999, holdings, "AAPL", "traditional")
         assert holdings["traditional"][0]["shares"] == 10.0
 
     def test_sell_unknown_ticker_raises(self, holdings):
         with pytest.raises(ValueError, match="not found"):
-            calculate.sellStock(0.0, 100.0, 1, holdings, "GOOG", "traditional")
+            calculate.sellStock(100.0, 1, holdings, "GOOG", "traditional")
 
     def test_sell_wrong_account_raises_even_if_ticker_exists_elsewhere(self, holdings):
         with pytest.raises(ValueError, match="not found"):
-            calculate.sellStock(0.0, 100.0, 1, holdings, "TSLA", "traditional")
+            calculate.sellStock(100.0, 1, holdings, "TSLA", "traditional")
 
     def test_sell_logs_transaction(self, holdings, tmp_path):
-        calculate.sellStock(0.0, 100.0, 2, holdings, "AAPL", "traditional")
+        calculate.sellStock(100.0, 2, holdings, "AAPL", "traditional")
         rows = list(csv.DictReader((tmp_path / "transactions.csv").open()))
         assert len(rows) == 1
         assert rows[0]["transaction"] == "sell"
@@ -253,25 +257,25 @@ class TestDividend:
     def test_dividend_without_reinvest_adds_cash_only(self, holdings, monkeypatch):
         self._feed_input(monkeypatch, ["AAPL", "traditional", "2", "n"])
         prices = {"AAPL": 100.0}
-        new_cash = calculate.dividend(1000.0, prices, holdings)
+        calculate.dividend(prices, holdings)
         # 2% yield * $100 price * 10 shares = $20
-        assert new_cash == 1020.0
-        assert holdings["traditional"][0]["shares"] == 10.0  # unchanged
+        assert holdings["cash"] == 1020.0
+        assert holdings["traditional"][0]["shares"] == 10.0
 
     def test_dividend_with_reinvest_buys_more_shares(self, holdings, monkeypatch):
         self._feed_input(monkeypatch, ["AAPL", "traditional", "10", "y"])
         prices = {"AAPL": 100.0}
         # 10% yield * $100 * 10 shares = $100 dividend -> buys 1 more share
-        new_cash = calculate.dividend(1000.0, prices, holdings)
-        assert new_cash == 1000.0  # +100 dividend, -100 spent buying back in
+        calculate.dividend(prices, holdings)
+        assert holdings["cash"] == 1000.0
         assert holdings["traditional"][0]["shares"] == pytest.approx(11.0)
 
     def test_dividend_unknown_ticker_raises(self, holdings, monkeypatch):
         self._feed_input(monkeypatch, ["GOOG", "traditional", "2"])
         with pytest.raises(ValueError, match="not found"):
-            calculate.dividend(1000.0, {"GOOG": 50.0}, holdings)
+            calculate.dividend({"GOOG": 50.0}, holdings)
 
     def test_dividend_missing_price_raises(self, holdings, monkeypatch):
         self._feed_input(monkeypatch, ["AAPL", "traditional", "2"])
         with pytest.raises(ValueError, match="No price available"):
-            calculate.dividend(1000.0, {}, holdings)
+            calculate.dividend({}, holdings)

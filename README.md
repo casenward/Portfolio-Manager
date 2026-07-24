@@ -23,4 +23,4 @@ make test    # run pytest
 make clean   # remove transactions.csv and caches
 ```
 
-Edit `data/holdings.json` for positions. Ticker `B` maps to `GOLD` for yfinance.
+Edit `data/holdings.json` for positions and cash. Ticker `B` maps to `GOLD` for yfinance.
