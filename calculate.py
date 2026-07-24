@@ -62,10 +62,23 @@ def _last_price(close, ticker: str) -> float | None:
     return float(series.iloc[-1])
 
 
-def fetch_current_prices(yf_tickers: list[str]) -> dict[str, float | None]:
+def _previous_price(close, ticker: str) -> float | None:
+    if close is None or ticker not in close:
+        return None
+
+    series = close[ticker].dropna()
+    if len(series) < 2:
+        return None
+
+    return float(series.iloc[-2])
+
+
+def fetch_current_prices(
+    yf_tickers: list[str],
+) -> tuple[dict[str, float | None], dict[str, float | None]]:
     tickers = list(dict.fromkeys(t for t in yf_tickers if t))
     if not tickers:
-        return {}
+        return {}, {}
 
     today = datetime.now(UTC).date()
     start_date = today - timedelta(days=14)
@@ -80,7 +93,9 @@ def fetch_current_prices(yf_tickers: list[str]) -> dict[str, float | None]:
     )
     close = _close_frame(raw, tickers)
 
-    return {ticker: _last_price(close, ticker) for ticker in tickers}
+    latest = {ticker: _last_price(close, ticker) for ticker in tickers}
+    previous = {ticker: _previous_price(close, ticker) for ticker in tickers}
+    return latest, previous
 
 
 def portfolio_value(
@@ -171,6 +186,7 @@ def sellStock(
 def print_portfolio(
     holdings: dict,
     prices: dict[str, float | None],
+    previous_prices: dict[str, float | None],
 ) -> None:
     traditional, _ = portfolio_value(holdings.get("traditional", []), prices)
     sustainable, _ = portfolio_value(holdings.get("sustainable", []), prices)
@@ -180,6 +196,7 @@ def print_portfolio(
     print(f"Sustainable: {format_dollars(sustainable)}")
     print(f"Combined:    {format_dollars(combined)}")
     print(f"Cash:        {format_dollars(holdings['cash'])}")
+    print(f"Day change:  {format_dollars(dayChange(prices, previous_prices, holdings))}")
 
 
 def prompt_trade() -> tuple[str, int, str]:
@@ -216,6 +233,23 @@ def dividend(prices: dict[str, float | None], holdings: dict) -> None:
         holdings["cash"] += cash_yield
         print(f"Received {format_dollars(cash_yield)} in dividends")
 
+def dayChange(
+    prices: dict[str, float | None],
+    previous_prices: dict[str, float | None],
+    holdings: dict,
+) -> float:
+    change = 0.0
+    for account, positions in holdings.items():
+        if account == "cash" or not isinstance(positions, list):
+            continue
+        for position in positions:
+            current = prices.get(position["yf_ticker"])
+            previous = previous_prices.get(position["yf_ticker"])
+            if current is None or previous is None:
+                continue
+            change += (current - previous) * position["shares"]
+    return change
+
 
 def main() -> int:
     holdings = load_holdings()
@@ -225,9 +259,9 @@ def main() -> int:
         if account != "cash"
         for position in positions
     ]
-    prices = fetch_current_prices(all_yf)
+    prices, previous_prices = fetch_current_prices(all_yf)
 
-    print_portfolio(holdings, prices)
+    print_portfolio(holdings, prices, previous_prices)
 
     missing_trad = portfolio_value(holdings.get("traditional", []), prices)[1]
     missing_sust = portfolio_value(holdings.get("sustainable", []), prices)[1]
@@ -259,7 +293,7 @@ def main() -> int:
             except (ValueError, TypeError) as exc:
                 print(f"Error: {exc}")
         elif choice == "3":
-            print_portfolio(holdings, prices)
+            print_portfolio(holdings, prices, previous_prices)
         elif choice == "4":
             try:
                 dividend(prices, holdings)
