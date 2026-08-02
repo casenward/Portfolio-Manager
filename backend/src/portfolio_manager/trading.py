@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from .formatting import format_dollars
-from .tickers import resolve_yf_ticker
 from .transactions import log_transaction
 
 
@@ -13,7 +11,7 @@ def buyStock(
     holdings: dict,
     ticker: str,
     account: str = "traditional",
-) -> None:
+) -> dict:
     cost = price * shares
     if holdings["cash"] < cost:
         raise ValueError("Not enough cash to buy shares")
@@ -29,6 +27,15 @@ def buyStock(
         raise ValueError(f"Ticker {ticker} not found in {account} holdings")
 
     log_transaction("buy", cost, shares, ticker, account)
+    return {
+        "action": "buy",
+        "ticker": ticker,
+        "account": account,
+        "shares": shares,
+        "price": price,
+        "cost": cost,
+        "cash": holdings["cash"],
+    }
 
 
 def sellStock(
@@ -37,7 +44,7 @@ def sellStock(
     holdings: dict,
     ticker: str,
     account: str = "traditional",
-) -> None:
+) -> dict:
     ticker = ticker.strip().upper()
     account_key = account.strip().lower()
     positions = holdings.get(account_key, [])
@@ -52,19 +59,32 @@ def sellStock(
             if position["shares"] == 0:
                 positions.remove(position)
             log_transaction("sell", proceeds, shares, ticker, account_key)
-            return
+            return {
+                "action": "sell",
+                "ticker": ticker,
+                "account": account_key,
+                "shares": shares,
+                "price": price,
+                "proceeds": proceeds,
+                "cash": holdings["cash"],
+            }
 
     raise ValueError(f"Ticker {ticker} not found in {account} holdings")
 
 
-def dividend(prices: dict[str, float | None], holdings: dict) -> None:
-    ticker = input("What stock is receiving dividends? ").strip().upper()
-    account = input("Account (traditional/sustainable): ").strip().lower() or "traditional"
-    dividend_yield = float(input("What is the dividend yield %? ")) / 100
-
-    price = prices.get(resolve_yf_ticker(ticker))
+def dividend(
+    price: float,
+    holdings: dict,
+    ticker: str,
+    account: str = "traditional",
+    dividend_yield: float = 0.0,
+    reinvest: bool = False,
+) -> dict:
     if price is None:
         raise ValueError(f"No price available for {ticker}")
+
+    ticker = ticker.strip().upper()
+    account = account.strip().lower()
 
     position = next(
         (p for p in holdings.get(account, []) if p["ticker"] == ticker),
@@ -74,13 +94,22 @@ def dividend(prices: dict[str, float | None], holdings: dict) -> None:
         raise ValueError(f"Ticker {ticker} not found in {account} holdings")
 
     cash_yield = dividend_yield * price * position["shares"]
-    reinvest = input("Do you want to reinvest the dividends? (y/n): ").strip().lower() == "y"
     log_transaction("dividend", cash_yield, position["shares"], ticker, account)
+
+    shares_bought = 0.0
     if reinvest:
         shares_bought = cash_yield / price
         holdings["cash"] += cash_yield
         buyStock(price, shares_bought, holdings, ticker, account)
-        print(f"Reinvested {format_dollars(cash_yield)} into {shares_bought:.4f} {ticker}")
     else:
         holdings["cash"] += cash_yield
-        print(f"Received {format_dollars(cash_yield)} in dividends")
+
+    return {
+        "action": "dividend",
+        "ticker": ticker,
+        "account": account,
+        "cash_yield": cash_yield,
+        "reinvested": reinvest,
+        "shares_bought": shares_bought,
+        "cash": holdings["cash"],
+    }

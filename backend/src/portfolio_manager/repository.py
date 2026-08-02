@@ -27,3 +27,22 @@ def load_holdings(path: Path = HOLDINGS_PATH) -> dict:
             for entry in positions
         ]
     return holdings
+
+
+def save_holdings(holdings: dict, path: Path = HOLDINGS_PATH) -> None:
+    payload: dict = {"cash": holdings["cash"]}
+    for account, positions in holdings.items():
+        if account == "cash" or not isinstance(positions, list):
+            continue
+        payload[account] = [
+            {
+                "name": position["name"],
+                "ticker": position["ticker"],
+                "shares": position["shares"],
+            }
+            for position in positions
+        ]
+
+    tmp = path.with_suffix(".tmp")
+    tmp.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    tmp.replace(path)

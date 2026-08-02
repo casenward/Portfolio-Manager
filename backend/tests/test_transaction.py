@@ -254,43 +254,46 @@ class TestSellStock:
 
 
 # ---------------------------------------------------------------------------
-# dividend (interactive) -- test via monkeypatched input()
+# dividend (parameterized, non-interactive)
 # ---------------------------------------------------------------------------
 
 class TestDividend:
-    def _feed_input(self, monkeypatch, answers):
-        it = iter(answers)
-        monkeypatch.setattr("builtins.input", lambda *_: next(it))
-
-    def test_dividend_without_reinvest_adds_cash_only(self, holdings, monkeypatch):
-        self._feed_input(monkeypatch, ["AAPL", "traditional", "2", "n"])
-        prices = {"AAPL": 100.0}
-        trading.dividend(prices, holdings)
+    def test_dividend_without_reinvest_adds_cash_only(self, holdings):
+        result = trading.dividend(
+            100.0, holdings, "AAPL", "traditional", dividend_yield=0.02, reinvest=False
+        )
         # 2% yield * $100 price * 10 shares = $20
         assert holdings["cash"] == 1020.0
         assert holdings["traditional"][0]["shares"] == 10.0
+        assert result["cash_yield"] == 20.0
+        assert result["reinvested"] is False
 
-    def test_dividend_with_reinvest_buys_more_shares(self, holdings, monkeypatch):
-        self._feed_input(monkeypatch, ["AAPL", "traditional", "10", "y"])
-        prices = {"AAPL": 100.0}
+    def test_dividend_with_reinvest_buys_more_shares(self, holdings):
         # 10% yield * $100 * 10 shares = $100 dividend -> buys 1 more share
-        trading.dividend(prices, holdings)
+        result = trading.dividend(
+            100.0, holdings, "AAPL", "traditional", dividend_yield=0.10, reinvest=True
+        )
         assert holdings["cash"] == 1000.0
         assert holdings["traditional"][0]["shares"] == pytest.approx(11.0)
+        assert result["shares_bought"] == pytest.approx(1.0)
+        assert result["reinvested"] is True
 
-    def test_dividend_unknown_ticker_raises(self, holdings, monkeypatch):
-        self._feed_input(monkeypatch, ["GOOG", "traditional", "2"])
+    def test_dividend_unknown_ticker_raises(self, holdings):
         with pytest.raises(ValueError, match="not found"):
-            trading.dividend({"GOOG": 50.0}, holdings)
+            trading.dividend(
+                50.0, holdings, "GOOG", "traditional", dividend_yield=0.02
+            )
 
-    def test_dividend_missing_price_raises(self, holdings, monkeypatch):
-        self._feed_input(monkeypatch, ["AAPL", "traditional", "2"])
+    def test_dividend_missing_price_raises(self, holdings):
         with pytest.raises(ValueError, match="No price available"):
-            trading.dividend({}, holdings)
+            trading.dividend(
+                None, holdings, "AAPL", "traditional", dividend_yield=0.02
+            )
 
-    def test_dividend_logs_transaction(self, holdings, monkeypatch, tmp_path):
-        self._feed_input(monkeypatch, ["AAPL", "traditional", "2", "n"])
-        trading.dividend({"AAPL": 100.0}, holdings)
+    def test_dividend_logs_transaction(self, holdings, tmp_path):
+        trading.dividend(
+            100.0, holdings, "AAPL", "traditional", dividend_yield=0.02, reinvest=False
+        )
         rows = list(csv.DictReader((tmp_path / "transactions.csv").open()))
         assert len(rows) == 1
         assert rows[0]["transaction"] == "dividend"

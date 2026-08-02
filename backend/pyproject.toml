@@ -10,13 +10,15 @@ requires-python = ">=3.11"
 dependencies = [
     "yfinance",
     "pandas",
+    "fastapi",
+    "uvicorn[standard]",
 ]
 
 [project.optional-dependencies]
-dev = ["pytest"]
+dev = ["pytest", "httpx"]
 
 [project.scripts]
-portfolio-manager = "portfolio_manager.cli:main"
+portfolio-manager = "portfolio_manager.server:serve"
 
 [tool.setuptools.packages.find]
 where = ["src"]
