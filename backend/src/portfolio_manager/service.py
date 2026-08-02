@@ -62,6 +62,79 @@ def get_portfolio_summary(state: AppState) -> dict:
         }
 
 
+def get_dashboard(state: AppState) -> dict:
+    with state.lock:
+        holdings = state.holdings
+        cash = float(holdings.get("cash", 0.0))
+        all_yf = _all_yf_tickers(holdings)
+        prices, previous_prices = market_data.fetch_current_prices(all_yf)
+
+        raw_companies: list[dict] = []
+        for account, positions in holdings.items():
+            if account == "cash" or not isinstance(positions, list):
+                continue
+            for position in positions:
+                yf_ticker = position["yf_ticker"]
+                price = prices.get(yf_ticker)
+                if price is None:
+                    continue
+                value = price * position["shares"]
+                previous = previous_prices.get(yf_ticker)
+                if previous and previous != 0:
+                    day_chg = (price - previous) / previous * 100.0
+                else:
+                    day_chg = 0.0
+                sector = market_data.fetch_sector(yf_ticker)
+                raw_companies.append(
+                    {
+                        "symbol": position["ticker"],
+                        "name": position["name"],
+                        "sector": sector,
+                        "price": price,
+                        "dayChg": round(day_chg, 2),
+                        "value": value,
+                    }
+                )
+
+        equity_total = sum(c["value"] for c in raw_companies)
+        companies: list[dict] = []
+        sector_weights: dict[str, float] = {}
+        for company in raw_companies:
+            weight = (
+                company["value"] / equity_total * 100.0 if equity_total > 0 else 0.0
+            )
+            weight = round(weight, 1)
+            companies.append(
+                {
+                    "symbol": company["symbol"],
+                    "name": company["name"],
+                    "sector": company["sector"],
+                    "price": round(company["price"], 2),
+                    "weight": weight,
+                    "dayChg": company["dayChg"],
+                    "value": round(company["value"], 2),
+                }
+            )
+            sector_weights[company["sector"]] = (
+                sector_weights.get(company["sector"], 0.0) + weight
+            )
+
+        sectors = sorted(
+            [
+                {"name": name, "value": round(value, 1)}
+                for name, value in sector_weights.items()
+            ],
+            key=lambda s: s["value"],
+            reverse=True,
+        )
+
+        return {
+            "total_worth": round(equity_total + cash, 2),
+            "companies": companies,
+            "sectors": sectors,
+        }
+
+
 def execute_buy(
     state: AppState,
     ticker: str,

@@ -43,6 +43,14 @@ def client(holdings_file: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch)
 
     monkeypatch.setattr(market_data, "fetch_current_prices", fake_prices)
 
+    def fake_sector(yf_ticker: str) -> str:
+        return {
+            "AAPL": "Technology",
+            "TSLA": "Consumer Cyclical",
+        }.get(yf_ticker, "Diversified")
+
+    monkeypatch.setattr(market_data, "fetch_sector", fake_sector)
+
     app = create_app(holdings_path=holdings_file)
     with TestClient(app) as test_client:
         yield test_client, holdings_file
@@ -80,6 +88,34 @@ class TestPortfolio:
         assert data["cash"] == 1000.0
         assert data["day_change"] == 70.0
         assert data["missing"] == []
+
+
+class TestDashboard:
+    def test_dashboard(self, client):
+        test_client, _ = client
+        response = test_client.get("/dashboard")
+        assert response.status_code == 200
+        data = response.json()
+        # equity 1400 + cash 1000
+        assert data["total_worth"] == 2400.0
+        assert len(data["companies"]) == 2
+
+        by_symbol = {c["symbol"]: c for c in data["companies"]}
+        assert by_symbol["AAPL"]["name"] == "Apple"
+        assert by_symbol["AAPL"]["sector"] == "Technology"
+        assert by_symbol["AAPL"]["price"] == 100.0
+        assert by_symbol["AAPL"]["weight"] == pytest.approx(71.4, abs=0.1)
+        assert by_symbol["AAPL"]["dayChg"] == pytest.approx(5.26, abs=0.01)
+        assert by_symbol["AAPL"]["value"] == 1000.0
+
+        assert by_symbol["TSLA"]["sector"] == "Consumer Cyclical"
+        assert by_symbol["TSLA"]["weight"] == pytest.approx(28.6, abs=0.1)
+        assert by_symbol["TSLA"]["value"] == 400.0
+
+        sectors = {s["name"]: s["value"] for s in data["sectors"]}
+        assert sectors["Technology"] == pytest.approx(71.4, abs=0.1)
+        assert sectors["Consumer Cyclical"] == pytest.approx(28.6, abs=0.1)
+        assert data["sectors"][0]["value"] >= data["sectors"][1]["value"]
 
 
 class TestBuy:

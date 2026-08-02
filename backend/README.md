@@ -46,6 +46,7 @@ Open interactive docs at [http://127.0.0.1:8001/docs](http://127.0.0.1:8001/docs
 | GET | `/health` | Liveness check |
 | GET | `/holdings` | Cash + positions |
 | GET | `/portfolio` | Live valuation + day change |
+| GET | `/dashboard` | Total worth, companies, sector allocation |
 | POST | `/buy` | `{ticker, shares, account}` |
 | POST | `/sell` | `{ticker, shares, account}` |
 | POST | `/dividend` | `{ticker, account, dividend_yield, reinvest}` |

@@ -31,6 +31,27 @@ class PortfolioResponse(BaseModel):
     missing: list[str]
 
 
+class CompanyPosition(BaseModel):
+    symbol: str
+    name: str
+    sector: str
+    price: float
+    weight: float
+    dayChg: float
+    value: float
+
+
+class SectorAllocation(BaseModel):
+    name: str
+    value: float
+
+
+class DashboardResponse(BaseModel):
+    total_worth: float
+    companies: list[CompanyPosition]
+    sectors: list[SectorAllocation]
+
+
 class TradeRequest(BaseModel):
     ticker: str
     shares: float = Field(gt=0)

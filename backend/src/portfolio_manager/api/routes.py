@@ -6,6 +6,7 @@ from fastapi import APIRouter, Request
 
 from portfolio_manager import service
 from portfolio_manager.api.schemas import (
+    DashboardResponse,
     DividendRequest,
     DividendResponse,
     HealthResponse,
@@ -36,6 +37,11 @@ def holdings(request: Request) -> HoldingsResponse:
 @router.get("/portfolio", response_model=PortfolioResponse)
 def portfolio(request: Request) -> PortfolioResponse:
     return PortfolioResponse(**service.get_portfolio_summary(_state(request)))
+
+
+@router.get("/dashboard", response_model=DashboardResponse)
+def dashboard(request: Request) -> DashboardResponse:
+    return DashboardResponse(**service.get_dashboard(_state(request)))
 
 
 @router.post("/buy", response_model=TradeResponse)

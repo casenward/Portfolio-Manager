@@ -6,6 +6,9 @@ from datetime import UTC, datetime, timedelta
 
 import yfinance as yf
 
+_SECTOR_FALLBACK = "Diversified"
+_sector_cache: dict[str, str] = {}
+
 
 def _close_frame(raw, tickers):
     if raw.empty or "Close" not in raw:
@@ -62,3 +65,23 @@ def fetch_current_prices(
     latest = {ticker: _last_price(close, ticker) for ticker in tickers}
     previous = {ticker: _previous_price(close, ticker) for ticker in tickers}
     return latest, previous
+
+
+def fetch_sector(yf_ticker: str) -> str:
+    """Return Yahoo Finance sector for a ticker; cache for process lifetime."""
+    if not yf_ticker:
+        return _SECTOR_FALLBACK
+    if yf_ticker in _sector_cache:
+        return _sector_cache[yf_ticker]
+
+    sector = _SECTOR_FALLBACK
+    try:
+        info = yf.Ticker(yf_ticker).info or {}
+        raw = info.get("sector")
+        if isinstance(raw, str) and raw.strip():
+            sector = raw.strip()
+    except Exception:
+        pass
+
+    _sector_cache[yf_ticker] = sector
+    return sector
