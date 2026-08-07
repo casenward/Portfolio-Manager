@@ -137,6 +137,39 @@ def get_dashboard(state: AppState) -> dict:
         }
 
 
+def _share_map(holdings: dict) -> dict[str, float]:
+    """Sum shares by yfinance ticker across accounts."""
+    shares: dict[str, float] = {}
+    for account, positions in holdings.items():
+        if account == "cash" or not isinstance(positions, list):
+            continue
+        for position in positions:
+            yf_ticker = position["yf_ticker"]
+            shares[yf_ticker] = shares.get(yf_ticker, 0.0) + float(position["shares"])
+    return shares
+
+
+def get_performance(state: AppState) -> dict:
+    """Cumulative return series for current holdings vs SPY, all chart ranges."""
+    from datetime import datetime, timedelta
+
+    from . import performance as perf
+
+    with state.lock:
+        share_map = _share_map(state.holdings)
+
+    today = datetime.now().astimezone().date()
+    start = perf.range_start("ALL", today)
+    tickers = list(share_map.keys()) + [perf.BENCHMARK_TICKER]
+    closes = perf.fetch_price_history(
+        tickers,
+        start=start,
+        end=today + timedelta(days=1),
+    )
+    series = perf.build_all_performance_series(closes, share_map, today=today)
+    return {"series": series}
+
+
 def execute_buy(
     state: AppState,
     ticker: str,

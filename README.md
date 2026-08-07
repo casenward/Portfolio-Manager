@@ -58,6 +58,7 @@ For the dashboard: start the API, then `cd frontend && npm install && npm run de
 | GET | `/holdings` | Cash + positions |
 | GET | `/portfolio` | Live valuation + day change |
 | GET | `/dashboard` | Total worth, companies, sector allocation |
+| GET | `/performance` | Cumulative return series vs S&P 500 (1M–ALL) |
 | POST | `/buy` | `{ticker, shares, account}` |
 | POST | `/sell` | `{ticker, shares, account}` |
 | POST | `/dividend` | `{ticker, account, dividend_yield, reinvest}` |

@@ -51,6 +51,21 @@ def client(holdings_file: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch)
 
     monkeypatch.setattr(market_data, "fetch_sector", fake_sector)
 
+    import pandas as pd
+    from portfolio_manager import performance as perf
+
+    def fake_history(yf_tickers: list[str], start, end=None):
+        from datetime import datetime, timedelta
+
+        today = datetime.now().astimezone().date()
+        idx = pd.bdate_range(end=today - timedelta(days=1), periods=80)
+        data = {}
+        for i, t in enumerate(yf_tickers):
+            data[t] = [100 + i + j * 0.3 for j in range(len(idx))]
+        return pd.DataFrame(data, index=idx)
+
+    monkeypatch.setattr(perf, "fetch_price_history", fake_history)
+
     app = create_app(holdings_path=holdings_file)
     with TestClient(app) as test_client:
         yield test_client, holdings_file
@@ -118,6 +133,23 @@ class TestDashboard:
         assert sectors["Technology"] == pytest.approx(71.4, abs=0.1)
         assert sectors["Consumer Cyclical"] == pytest.approx(28.6, abs=0.1)
         assert data["sectors"][0]["value"] >= data["sectors"][1]["value"]
+
+
+class TestPerformance:
+    def test_performance_series(self, client):
+        test_client, _ = client
+        response = test_client.get("/performance")
+        assert response.status_code == 200
+        data = response.json()
+        assert "series" in data
+        for key in ("1M", "3M", "YTD", "1Y", "ALL"):
+            assert key in data["series"]
+            assert isinstance(data["series"][key], list)
+        assert len(data["series"]["1M"]) >= 1
+        point = data["series"]["1M"][0]
+        assert "label" in point
+        assert "portfolio" in point
+        assert "benchmark" in point
 
 
 class TestBuy:

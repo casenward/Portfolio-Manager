@@ -11,6 +11,7 @@ from portfolio_manager.api.schemas import (
     DividendResponse,
     HealthResponse,
     HoldingsResponse,
+    PerformanceResponse,
     PortfolioResponse,
     TradeRequest,
     TradeResponse,
@@ -42,6 +43,11 @@ def portfolio(request: Request) -> PortfolioResponse:
 @router.get("/dashboard", response_model=DashboardResponse)
 def dashboard(request: Request) -> DashboardResponse:
     return DashboardResponse(**service.get_dashboard(_state(request)))
+
+
+@router.get("/performance", response_model=PerformanceResponse)
+def performance(request: Request) -> PerformanceResponse:
+    return PerformanceResponse(**service.get_performance(_state(request)))
 
 
 @router.post("/buy", response_model=TradeResponse)

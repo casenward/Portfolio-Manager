@@ -53,6 +53,16 @@ class DashboardResponse(BaseModel):
     sectors: list[SectorAllocation]
 
 
+class PerformancePoint(BaseModel):
+    label: str
+    portfolio: float
+    benchmark: float | None = None
+
+
+class PerformanceResponse(BaseModel):
+    series: dict[str, list[PerformancePoint]]
+
+
 class TradeRequest(BaseModel):
     ticker: str
     shares: float = Field(gt=0)

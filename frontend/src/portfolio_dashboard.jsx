@@ -27,27 +27,6 @@ const SECTOR_COLORS = ["#4FB8C4", "#7C93C9", "#9B7EC4", "#D9A441", "#8FA85B", "#
 
 const RANGES = ["1M", "3M", "YTD", "1Y", "ALL"];
 
-const PERFORMANCE_SERIES = {
-  "1M": [
-    ["Wk 1", "none", "none"], ["Wk 2", "none", "none"], ["Wk 3", "none", "none"], ["Wk 4", "none", "none"],
-  ],
-  "3M": [
-    ["Apr", "none", "none"], ["May", "none", "none"], ["Jun", "none", "none"], ["Jul", "none", "none"],
-  ],
-  YTD: [
-    ["Jan", "none", "none"], ["Feb", "none", "none"], ["Mar", "none", "none"], ["Apr", "none", "none"],
-    ["May", "none", "none"], ["Jun", "none", "none"], ["Jul", "none", "none"],
-  ],
-  "1Y": [
-    ["Aug", "none", "none"], ["Sep", "none", "none"], ["Oct", "none", "none"], ["Nov", "none", "none"],
-    ["Dec", "none", "none"], ["Jan", "none", "none"], ["Feb", "none", "none"], ["Mar", "none", "none"],
-    ["Apr", "none", "none"], ["May", "none", "none"], ["Jun", "none", "none"], ["Jul", "none", "none"],
-  ],
-  ALL: [
-    ["2023", "none", "none"], ["2024", "none", "none"], ["2025", "none", "none"], ["2026", "none", "none"],
-  ],
-};
-
 const METRICS = [
   { key: "sharpe", label: "Sharpe Ratio", value: "none", desc: "Return per unit of total risk" },
   { key: "sortino", label: "Sortino Ratio", value: "none", desc: "Return per unit of downside risk" },
@@ -114,9 +93,18 @@ function TickerTape({ holdings }) {
   );
 }
 
-function PerformanceChart() {
+function PerformanceChart({ seriesByRange, status, error }) {
   const [range, setRange] = useState("YTD");
-  const data = PERFORMANCE_SERIES[range].map(([label, portfolio, benchmark]) => ({ label, portfolio, benchmark }));
+  const data = useMemo(() => {
+    const points = seriesByRange?.[range] || [];
+    return points
+      .filter((p) => isNumber(p.portfolio))
+      .map((p) => ({
+        label: p.label,
+        portfolio: p.portfolio,
+        benchmark: isNumber(p.benchmark) ? p.benchmark : null,
+      }));
+  }, [seriesByRange, range]);
 
   return (
     <div className="panel">
@@ -140,34 +128,49 @@ function PerformanceChart() {
         </div>
       </div>
 
-      <ResponsiveContainer width="100%" height={280}>
-        <AreaChart data={data} margin={{ top: 10, right: 12, left: -12, bottom: 0 }}>
-          <defs>
-            <linearGradient id="portfolioFill" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stopColor="#C9A035" stopOpacity={0.35} />
-              <stop offset="100%" stopColor="#C9A035" stopOpacity={0} />
-            </linearGradient>
-          </defs>
-          <CartesianGrid stroke="#232936" vertical={false} />
-          <XAxis dataKey="label" stroke="#6B7284" fontSize={12} fontFamily="'IBM Plex Mono', monospace" tickLine={false} axisLine={{ stroke: "#232936" }} />
-          <YAxis stroke="#6B7284" fontSize={12} fontFamily="'IBM Plex Mono', monospace" tickLine={false} axisLine={false} tickFormatter={(v) => `${v}%`} />
-          <Tooltip
-            contentStyle={{ background: "#151A24", border: "1px solid #2A3140", borderRadius: 6, fontFamily: "'IBM Plex Mono', monospace", fontSize: 12 }}
-            labelStyle={{ color: "#E9E6DD" }}
-            formatter={(value, name) => [
-              isNumber(value) ? `${value.toFixed(2)}%` : "—",
-              name === "portfolio" ? "Portfolio" : "S&P 500",
-            ]}
-          />
-          <Area type="monotone" dataKey="benchmark" stroke="#6B7284" strokeWidth={1.5} strokeDasharray="4 3" fill="none" dot={false} />
-          <Area type="monotone" dataKey="portfolio" stroke="#C9A035" strokeWidth={2} fill="url(#portfolioFill)" dot={false} />
-        </AreaChart>
-      </ResponsiveContainer>
+      {status === "loading" && (
+        <p className="panel-sub">Loading chart…</p>
+      )}
+      {status === "error" && (
+        <p className="panel-sub" style={{ color: "var(--loss)" }}>
+          Could not load performance: {error}
+        </p>
+      )}
+      {status === "ready" && data.length === 0 && (
+        <p className="panel-sub">No performance data for this range</p>
+      )}
+      {status === "ready" && data.length > 0 && (
+        <>
+          <ResponsiveContainer width="100%" height={280}>
+            <AreaChart data={data} margin={{ top: 10, right: 12, left: -12, bottom: 0 }}>
+              <defs>
+                <linearGradient id="portfolioFill" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor="#C9A035" stopOpacity={0.35} />
+                  <stop offset="100%" stopColor="#C9A035" stopOpacity={0} />
+                </linearGradient>
+              </defs>
+              <CartesianGrid stroke="#232936" vertical={false} />
+              <XAxis dataKey="label" stroke="#6B7284" fontSize={12} fontFamily="'IBM Plex Mono', monospace" tickLine={false} axisLine={{ stroke: "#232936" }} />
+              <YAxis stroke="#6B7284" fontSize={12} fontFamily="'IBM Plex Mono', monospace" tickLine={false} axisLine={false} tickFormatter={(v) => `${v}%`} />
+              <Tooltip
+                contentStyle={{ background: "#151A24", border: "1px solid #2A3140", borderRadius: 6, fontFamily: "'IBM Plex Mono', monospace", fontSize: 12 }}
+                labelStyle={{ color: "#E9E6DD" }}
+                formatter={(value, name) => [
+                  isNumber(value) ? `${value.toFixed(2)}%` : "—",
+                  name === "portfolio" ? "Portfolio" : "S&P 500",
+                ]}
+              />
+              <Area type="monotone" dataKey="benchmark" stroke="#6B7284" strokeWidth={1.5} strokeDasharray="4 3" fill="none" dot={false} connectNulls />
+              <Area type="monotone" dataKey="portfolio" stroke="#C9A035" strokeWidth={2} fill="url(#portfolioFill)" dot={false} />
+            </AreaChart>
+          </ResponsiveContainer>
 
-      <div className="legend-row">
-        <span className="legend-item"><i className="dot gold" /> Portfolio</span>
-        <span className="legend-item"><i className="dot dash" /> S&amp;P 500</span>
-      </div>
+          <div className="legend-row">
+            <span className="legend-item"><i className="dot gold" /> Portfolio</span>
+            <span className="legend-item"><i className="dot dash" /> S&amp;P 500</span>
+          </div>
+        </>
+      )}
     </div>
   );
 }
@@ -504,6 +507,9 @@ export default function PortfolioDashboard() {
   const [sectors, setSectors] = useState([]);
   const [status, setStatus] = useState("loading");
   const [error, setError] = useState(null);
+  const [perfSeries, setPerfSeries] = useState({});
+  const [perfStatus, setPerfStatus] = useState("loading");
+  const [perfError, setPerfError] = useState(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -529,7 +535,27 @@ export default function PortfolioDashboard() {
       }
     }
 
+    async function loadPerformance() {
+      setPerfStatus("loading");
+      setPerfError(null);
+      try {
+        const response = await fetch("/api/performance");
+        if (!response.ok) {
+          throw new Error(`API ${response.status}`);
+        }
+        const data = await response.json();
+        if (cancelled) return;
+        setPerfSeries(data.series || {});
+        setPerfStatus("ready");
+      } catch (err) {
+        if (cancelled) return;
+        setPerfError(err instanceof Error ? err.message : "Failed to load performance");
+        setPerfStatus("error");
+      }
+    }
+
     load();
+    loadPerformance();
     return () => {
       cancelled = true;
     };
@@ -973,7 +999,11 @@ export default function PortfolioDashboard() {
       <TickerTape holdings={companies} />
 
       <div className="grid-2col">
-        <PerformanceChart />
+        <PerformanceChart
+          seriesByRange={perfSeries}
+          status={perfStatus}
+          error={perfError}
+        />
         <AllocationPanel sectors={sectors} />
       </div>
 
