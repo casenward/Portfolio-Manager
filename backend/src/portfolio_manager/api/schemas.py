@@ -34,6 +34,7 @@ class PortfolioResponse(BaseModel):
 class CompanyPosition(BaseModel):
     symbol: str
     name: str
+    account: str
     sector: str
     price: float
     weight: float

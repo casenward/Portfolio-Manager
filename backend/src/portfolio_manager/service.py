@@ -89,6 +89,7 @@ def get_dashboard(state: AppState) -> dict:
                     {
                         "symbol": position["ticker"],
                         "name": position["name"],
+                        "account": account,
                         "sector": sector,
                         "price": price,
                         "dayChg": round(day_chg, 2),
@@ -108,6 +109,7 @@ def get_dashboard(state: AppState) -> dict:
                 {
                     "symbol": company["symbol"],
                     "name": company["name"],
+                    "account": company["account"],
                     "sector": company["sector"],
                     "price": round(company["price"], 2),
                     "weight": weight,

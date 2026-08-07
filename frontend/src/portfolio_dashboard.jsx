@@ -263,24 +263,126 @@ function MetricsGrid() {
   );
 }
 
-function HoldingsTable({ holdings, totalWorth }) {
+const HOLDINGS_TABS = [
+  { id: "traditional", label: "Traditional" },
+  { id: "sustainable", label: "Sustainable" },
+  { id: "combined", label: "Combined" },
+];
+
+function accountLabel(account) {
+  if (account === "both") return "Both";
+  if (account === "sustainable") return "Sustainable";
+  if (account === "traditional") return "Traditional";
+  return account || "—";
+}
+
+/** Merge same-symbol rows across accounts for the Combined tab. */
+function mergeCombinedHoldings(holdings) {
+  const bySymbol = new Map();
+
+  for (const h of holdings) {
+    const key = h.symbol;
+    const existing = bySymbol.get(key);
+    if (!existing) {
+      bySymbol.set(key, {
+        ...h,
+        accounts: new Set(h.account ? [h.account] : []),
+      });
+      continue;
+    }
+
+    const nextValue =
+      (isNumber(existing.value) ? existing.value : 0) +
+      (isNumber(h.value) ? h.value : 0);
+
+    // Value-weighted day change when both legs have a %.
+    let nextDay = existing.dayChg;
+    if (isNumber(existing.dayChg) && isNumber(h.dayChg) && nextValue > 0) {
+      const w0 = isNumber(existing.value) ? existing.value : 0;
+      const w1 = isNumber(h.value) ? h.value : 0;
+      nextDay = (existing.dayChg * w0 + h.dayChg * w1) / nextValue;
+    } else if (!isNumber(existing.dayChg) && isNumber(h.dayChg)) {
+      nextDay = h.dayChg;
+    }
+
+    if (h.account) existing.accounts.add(h.account);
+
+    bySymbol.set(key, {
+      ...existing,
+      value: nextValue,
+      price: isNumber(h.price) ? h.price : existing.price,
+      dayChg: isNumber(nextDay) ? Math.round(nextDay * 100) / 100 : nextDay,
+      name: existing.name || h.name,
+      sector: existing.sector || h.sector,
+    });
+  }
+
+  return [...bySymbol.values()].map((h) => {
+    const accounts = h.accounts || new Set();
+    let account = h.account;
+    if (accounts.size > 1) account = "both";
+    else if (accounts.size === 1) account = [...accounts][0];
+
+    const { accounts: _drop, ...rest } = h;
+    return { ...rest, account };
+  });
+}
+
+function HoldingsTable({ holdings }) {
+  const [open, setOpen] = useState(true);
+  const [tab, setTab] = useState("combined");
   const [sortKey, setSortKey] = useState("weight");
   const [sortDir, setSortDir] = useState("desc");
 
+  const hasAccount = holdings.some((h) => typeof h.account === "string" && h.account.length > 0);
+
+  const visible = useMemo(() => {
+    let filtered;
+    if (tab === "combined") {
+      filtered = mergeCombinedHoldings(holdings);
+    } else if (!hasAccount) {
+      filtered = holdings;
+    } else {
+      filtered = holdings.filter((h) => h.account === tab);
+    }
+
+    const equity = filtered.reduce(
+      (sum, h) => sum + (isNumber(h.value) ? h.value : 0),
+      0
+    );
+    return filtered.map((h) => ({
+      ...h,
+      weight:
+        equity > 0 && isNumber(h.value)
+          ? Math.round((h.value / equity) * 1000) / 10
+          : 0,
+    }));
+  }, [holdings, tab, hasAccount]);
+
   const sorted = useMemo(() => {
-    const copy = [...holdings];
+    const copy = [...visible];
+    const key = sortKey === "account" && tab !== "combined" ? "weight" : sortKey;
     copy.sort((a, b) => {
-      let av = a[sortKey];
-      let bv = b[sortKey];
-      if (typeof av === "string") {
-        return sortDir === "asc" ? av.localeCompare(bv) : bv.localeCompare(av);
+      const av = a[key];
+      const bv = b[key];
+      if (typeof av === "string" || typeof bv === "string") {
+        const as = av == null ? "" : String(av);
+        const bs = bv == null ? "" : String(bv);
+        return sortDir === "asc" ? as.localeCompare(bs) : bs.localeCompare(as);
       }
       const an = isNumber(av) ? av : -Infinity;
       const bn = isNumber(bv) ? bv : -Infinity;
       return sortDir === "asc" ? an - bn : bn - an;
     });
     return copy;
-  }, [holdings, sortKey, sortDir]);
+  }, [visible, sortKey, sortDir, tab]);
+
+  function selectTab(next) {
+    setTab(next);
+    if (sortKey === "account" && next !== "combined") {
+      setSortKey("weight");
+    }
+  }
 
   function toggleSort(key) {
     if (key === sortKey) {
@@ -294,6 +396,7 @@ function HoldingsTable({ holdings, totalWorth }) {
   const cols = [
     { key: "symbol", label: "Symbol" },
     { key: "name", label: "Name" },
+    ...(tab === "combined" && hasAccount ? [{ key: "account", label: "Account" }] : []),
     { key: "sector", label: "Sector" },
     { key: "price", label: "Price" },
     { key: "weight", label: "Weight" },
@@ -301,54 +404,96 @@ function HoldingsTable({ holdings, totalWorth }) {
   ];
 
   return (
-    <div className="panel">
-      <div className="panel-head">
-        <div>
+    <div className={`panel holdings-folder ${open ? "open" : "closed"}`}>
+      <button
+        type="button"
+        className="holdings-folder-toggle"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+      >
+        <span className="holdings-folder-title">
+          {open ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
           <h2>Holdings</h2>
-          <p className="panel-sub">{holdings.length} positions</p>
-        </div>
-      </div>
-      <div className="table-scroll">
-        <table className="holdings-table">
-          <thead>
-            <tr>
-              {cols.map((c) => (
-                <th key={c.key}>
-                  <button className="th-btn" onClick={() => toggleSort(c.key)}>
-                    {c.label}
-                    {sortKey === c.key && (sortDir === "asc" ? <ChevronUp size={12} /> : <ChevronDown size={12} />)}
-                  </button>
-                </th>
-              ))}
-              <th className="num-col">Value</th>
-            </tr>
-          </thead>
-          <tbody>
-            {sorted.map((h) => (
-              <tr key={h.symbol}>
-                <td className="mono symbol-cell">{h.symbol}</td>
-                <td className="dim">{h.name}</td>
-                <td><span className="sector-pill">{h.sector}</span></td>
-                <td className="mono">{isNumber(h.price) ? `$${h.price.toFixed(2)}` : "—"}</td>
-                <td className="mono">
-                  <div className="weight-bar-wrap">
-                    <div className="weight-bar" style={{ width: `${isNumber(h.weight) ? h.weight * 4 : 0}%` }} />
-                    <span>{isNumber(h.weight) ? `${h.weight}%` : "—"}</span>
-                  </div>
-                </td>
-                <td className="mono"><ChangeBadge value={h.dayChg} size="sm" /></td>
-                <td className="mono num-col">
-                  {isNumber(h.value)
-                    ? fmtCurrency(h.value)
-                    : isNumber(h.weight) && isNumber(totalWorth)
-                      ? fmtCurrency((h.weight / 100) * totalWorth)
-                      : "—"}
-                </td>
-              </tr>
+        </span>
+        <p className="panel-sub">{holdings.length} positions</p>
+      </button>
+
+      {open && (
+        <div className="holdings-folder-body">
+          <div className="holdings-tabs" role="tablist" aria-label="Holdings account">
+            {HOLDINGS_TABS.map((t) => (
+              <button
+                key={t.id}
+                type="button"
+                role="tab"
+                aria-selected={tab === t.id}
+                className={`holdings-tab ${tab === t.id ? "active" : ""}`}
+                onClick={() => selectTab(t.id)}
+              >
+                {t.label}
+              </button>
             ))}
-          </tbody>
-        </table>
-      </div>
+          </div>
+          {!hasAccount && (
+            <p className="panel-sub holdings-tab-count">
+              Account tabs need a restarted API (missing account field on holdings).
+            </p>
+          )}
+          <p className="panel-sub holdings-tab-count">{sorted.length} positions</p>
+          <div className="table-scroll">
+            <table className="holdings-table">
+              <thead>
+                <tr>
+                  {cols.map((c) => (
+                    <th key={c.key}>
+                      <button className="th-btn" onClick={() => toggleSort(c.key)}>
+                        {c.label}
+                        {sortKey === c.key && (sortDir === "asc" ? <ChevronUp size={12} /> : <ChevronDown size={12} />)}
+                      </button>
+                    </th>
+                  ))}
+                  <th className="num-col">Value</th>
+                </tr>
+              </thead>
+              <tbody>
+                {sorted.length === 0 ? (
+                  <tr>
+                    <td colSpan={cols.length + 1} className="dim">
+                      No positions in this account
+                    </td>
+                  </tr>
+                ) : (
+                  sorted.map((h, i) => (
+                    <tr key={`${h.account || "na"}-${h.symbol}-${i}`}>
+                      <td className="mono symbol-cell">{h.symbol}</td>
+                      <td className="dim">{h.name}</td>
+                      {tab === "combined" && hasAccount && (
+                        <td>
+                          <span className="sector-pill">
+                            {accountLabel(h.account)}
+                          </span>
+                        </td>
+                      )}
+                      <td><span className="sector-pill">{h.sector}</span></td>
+                      <td className="mono">{isNumber(h.price) ? `$${h.price.toFixed(2)}` : "—"}</td>
+                      <td className="mono">
+                        <div className="weight-bar-wrap">
+                          <div className="weight-bar" style={{ width: `${isNumber(h.weight) ? Math.min(h.weight * 4, 100) : 0}%` }} />
+                          <span>{isNumber(h.weight) ? `${h.weight}%` : "—"}</span>
+                        </div>
+                      </td>
+                      <td className="mono"><ChangeBadge value={h.dayChg} size="sm" /></td>
+                      <td className="mono num-col">
+                        {isNumber(h.value) ? fmtCurrency(h.value) : "—"}
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -399,6 +544,7 @@ export default function PortfolioDashboard() {
           margin: 0;
           min-height: 100%;
           background: #0A1310;
+          scrollbar-gutter: stable;
         }
 
         .dash-root {
@@ -699,8 +845,52 @@ export default function PortfolioDashboard() {
         }
         .metric-desc.show { max-height: 40px; opacity: 1; }
 
+        /* Holdings folder */
+        .holdings-folder { padding-top: 14px; padding-bottom: 14px; }
+        .holdings-folder-toggle {
+          display: flex;
+          width: 100%;
+          justify-content: space-between;
+          align-items: center;
+          gap: 12px;
+          text-align: left;
+          padding: 0;
+        }
+        .holdings-folder-title {
+          display: inline-flex;
+          align-items: center;
+          gap: 8px;
+        }
+        .holdings-folder-title h2 { margin: 0; }
+        .holdings-folder-body { margin-top: 14px; }
+        .holdings-tabs {
+          display: flex;
+          background: var(--surface-2);
+          border: 1px solid var(--border);
+          border-radius: 7px;
+          padding: 2px;
+          width: fit-content;
+          margin-bottom: 10px;
+        }
+        .holdings-tab {
+          font-family: 'IBM Plex Mono', monospace;
+          font-size: 11px;
+          padding: 5px 12px;
+          border-radius: 5px;
+          color: var(--text-dim);
+        }
+        .holdings-tab.active {
+          background: var(--gold);
+          color: #06171A;
+          font-weight: 600;
+        }
+        .holdings-tab-count { margin: 0 0 10px; }
+
         /* Holdings table */
-        .table-scroll { overflow-x: auto; }
+        .table-scroll {
+          overflow: auto;
+          max-height: min(520px, 60vh);
+        }
         .holdings-table {
           width: 100%;
           border-collapse: collapse;
@@ -788,7 +978,7 @@ export default function PortfolioDashboard() {
       </div>
 
       <MetricsGrid />
-      <HoldingsTable holdings={companies} totalWorth={totalWorth} />
+      <HoldingsTable holdings={companies} />
     </div>
   );
 }

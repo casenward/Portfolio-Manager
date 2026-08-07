@@ -102,12 +102,14 @@ class TestDashboard:
 
         by_symbol = {c["symbol"]: c for c in data["companies"]}
         assert by_symbol["AAPL"]["name"] == "Apple"
+        assert by_symbol["AAPL"]["account"] == "traditional"
         assert by_symbol["AAPL"]["sector"] == "Technology"
         assert by_symbol["AAPL"]["price"] == 100.0
         assert by_symbol["AAPL"]["weight"] == pytest.approx(71.4, abs=0.1)
         assert by_symbol["AAPL"]["dayChg"] == pytest.approx(5.26, abs=0.01)
         assert by_symbol["AAPL"]["value"] == 1000.0
 
+        assert by_symbol["TSLA"]["account"] == "sustainable"
         assert by_symbol["TSLA"]["sector"] == "Consumer Cyclical"
         assert by_symbol["TSLA"]["weight"] == pytest.approx(28.6, abs=0.1)
         assert by_symbol["TSLA"]["value"] == 400.0
